@@ -27,7 +27,7 @@ import java.util.Objects;
 
 @Component(service = ContentExporterService.class,
         property = {
-                Constants.SERVICE_DESCRIPTION + "=Content Exporter Service",
+                Constants.SERVICE_DESCRIPTION + "=AEM Content Exporter: Content Exporter Service",
         })
 @Designate(ocd = ContentExporterServiceConfig.class)
 public class ContentExporterServiceImpl implements ContentExporterService {
