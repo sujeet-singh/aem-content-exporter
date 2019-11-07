@@ -22,29 +22,35 @@ import javax.jcr.query.QueryResult;
 import java.util.ArrayList;
 import java.util.List;
 
-@Component(service = ContentExporterService.class, immediate = true,
+@Component(service = ContentExporterService.class,
         property = {
                 Constants.SERVICE_DESCRIPTION + "=Content Exporter Service",
         })
 @Designate(ocd = ContentExporterServiceConfig.class)
 public class ContentExporterServiceImpl implements ContentExporterService {
     private static final String PAGE_PROPERTIES = "pageProperties";
+    private static final String CONTENT = "content";
     private Logger logger = LoggerFactory.getLogger(this.getClass());
-    private ObjectMapper mapper = new ObjectMapper();
-    private JsonNode rootNode = mapper.createObjectNode();
-    private Session session;
-    private List<Node> nodeList = new ArrayList<>();
 
     @Override
     public String composeJson(ResourceResolver resolver, Page page) {
         logger.info("Inside {}", this.getClass().getName());
-        session = resolver.adaptTo(Session.class);
+
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode rootNode = mapper.createObjectNode();
+        Session session = resolver.adaptTo(Session.class);
         String path = page.getContentResource().getPath();
+
         //Creating Nodes list for Json processing
-        createNodeList(path);
+        List<Node> nodeList = createNodeList(session, path);
 
         try {
-            createPageJson(page);
+            // Creating Page Properties Json
+            ((ObjectNode) rootNode).set(PAGE_PROPERTIES, createPageJson(mapper, page));
+
+            // Creating Page Content Json
+//            ((ObjectNode) rootNode).set(CONTENT, createPageContent(mapper, nodeList, path));
+
             return mapper.writeValueAsString(rootNode);
         } catch (RepositoryException | JsonProcessingException e) {
             logger.error("Exception Caused while parsing Json: {}", e.getMessage());
@@ -53,13 +59,27 @@ public class ContentExporterServiceImpl implements ContentExporterService {
         return null;
     }
 
-    private void createPageJson(Page page) throws RepositoryException {
+    private JsonNode createPageJson(ObjectMapper mapper, Page page) throws RepositoryException {
         Node jcrContentNode = page.getContentResource().adaptTo(Node.class);
-        JsonNode propertyJsonObject = createPropertyJsonObject(jcrContentNode);
-        ((ObjectNode) rootNode).set(PAGE_PROPERTIES, propertyJsonObject);
+        JsonNode propertyJsonObject = createPropertyJsonObject(mapper, jcrContentNode);
+        return propertyJsonObject;
     }
 
-    private JsonNode createPropertyJsonObject(Node node) throws RepositoryException {
+    private JsonNode createPageContent(ObjectMapper mapper, List<Node> nodeList, String path) throws RepositoryException {
+        JsonNode propertyJsonObject = mapper.createObjectNode();
+        for (Node node : nodeList) {
+            int depth = getDepth(path, node.getPath());
+            ((ObjectNode) propertyJsonObject).put(node.getName(), createPropertyJsonObject(mapper, node));
+        }
+
+        return propertyJsonObject;
+    }
+
+    private int getDepth(String rootPath, String path) {
+        return path.replace(rootPath, "").split("/").length;
+    }
+
+    private JsonNode createPropertyJsonObject(ObjectMapper mapper, Node node) throws RepositoryException {
         JsonNode jsonProperties = mapper.createObjectNode();
         PropertyIterator properties = node.getProperties();
         while (properties.hasNext()) {
@@ -117,12 +137,14 @@ public class ContentExporterServiceImpl implements ContentExporterService {
         return jsonProperties;
     }
 
-    private void createNodeList(String path) {
+    private List<Node> createNodeList(Session session, String path) {
         String queryString = "SELECT * FROM [nt:base] AS node WHERE ISDESCENDANTNODE(node, \"" + path + "\")";
+        List<Node> nodeList = new ArrayList<>();
         NodeIterator nodeIterator = executeQuery(session, queryString);
         while (nodeIterator.hasNext()) {
             nodeList.add(nodeIterator.nextNode());
         }
+        return nodeList;
     }
 
     private NodeIterator executeQuery(Session session, String queryStr) {
