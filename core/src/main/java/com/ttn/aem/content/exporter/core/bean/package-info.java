@@ -14,6 +14,6 @@
  *  limitations under the License.
  */
 @Version("1.0")
-package com.ttn.aem.content.exporter.core.core;
+package com.ttn.aem.content.exporter.core.bean;
 
-import org.osgi.annotation.versioning.Version;
+        import org.osgi.annotation.versioning.Version;
