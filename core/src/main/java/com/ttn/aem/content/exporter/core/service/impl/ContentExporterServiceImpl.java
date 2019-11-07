@@ -19,8 +19,11 @@ import javax.jcr.*;
 import javax.jcr.query.Query;
 import javax.jcr.query.QueryManager;
 import javax.jcr.query.QueryResult;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 
 @Component(service = ContentExporterService.class,
         property = {
@@ -29,8 +32,10 @@ import java.util.List;
 @Designate(ocd = ContentExporterServiceConfig.class)
 public class ContentExporterServiceImpl implements ContentExporterService {
     private static final String PAGE_PROPERTIES = "pageProperties";
+    private static final String DATE_FORMAT = "dd MMM yyyy, EEEE";
     private static final String CONTENT = "content";
     private Logger logger = LoggerFactory.getLogger(this.getClass());
+
 
     @Override
     public String composeJson(ResourceResolver resolver, Page page) {
@@ -49,7 +54,7 @@ public class ContentExporterServiceImpl implements ContentExporterService {
             ((ObjectNode) rootNode).set(PAGE_PROPERTIES, createPageJson(mapper, page));
 
             // Creating Page Content Json
-//            ((ObjectNode) rootNode).set(CONTENT, createPageContent(mapper, nodeList, path));
+            ((ObjectNode) rootNode).set(CONTENT, createPageContent(mapper, nodeList, path));
 
             return mapper.writeValueAsString(rootNode);
         } catch (RepositoryException | JsonProcessingException e) {
@@ -61,26 +66,26 @@ public class ContentExporterServiceImpl implements ContentExporterService {
 
     private JsonNode createPageJson(ObjectMapper mapper, Page page) throws RepositoryException {
         Node jcrContentNode = page.getContentResource().adaptTo(Node.class);
-        JsonNode propertyJsonObject = createPropertyJsonObject(mapper, jcrContentNode);
-        return propertyJsonObject;
+        return createPropertyJsonObject(mapper, jcrContentNode);
     }
 
     private JsonNode createPageContent(ObjectMapper mapper, List<Node> nodeList, String path) throws RepositoryException {
-        JsonNode propertyJsonObject = mapper.createObjectNode();
+        ObjectNode propertyJsonObject = mapper.createObjectNode();
         for (Node node : nodeList) {
-            int depth = getDepth(path, node.getPath());
-            ((ObjectNode) propertyJsonObject).put(node.getName(), createPropertyJsonObject(mapper, node));
+            String searchPath = node.getParent().getPath().replace(path, "");
+            JsonNode childNode = propertyJsonObject.at(searchPath);
+            if (Objects.nonNull(childNode)) {
+                ((ObjectNode) childNode).put(node.getName(), createPropertyJsonObject(mapper, node));
+            } else {
+                propertyJsonObject.put(node.getName(), createPropertyJsonObject(mapper, node));
+            }
         }
 
         return propertyJsonObject;
     }
 
-    private int getDepth(String rootPath, String path) {
-        return path.replace(rootPath, "").split("/").length;
-    }
-
     private JsonNode createPropertyJsonObject(ObjectMapper mapper, Node node) throws RepositoryException {
-        JsonNode jsonProperties = mapper.createObjectNode();
+        ObjectNode jsonProperties = mapper.createObjectNode();
         PropertyIterator properties = node.getProperties();
         while (properties.hasNext()) {
             Property property = properties.nextProperty();
@@ -88,49 +93,45 @@ public class ContentExporterServiceImpl implements ContentExporterService {
             if (property.isMultiple()) {
                 for (Value value : property.getValues()) {
                     switch (property.getType()) {
-                        case PropertyType.BOOLEAN: {
+                        case PropertyType.BOOLEAN:
                             arrayNode.add(value.getBoolean());
                             break;
-                        }
-                        case PropertyType.STRING: {
-                            arrayNode.add(value.getString());
+                        case PropertyType.DATE:
+                            arrayNode.add(getFormattedDate(value.getDate().getTime(), DATE_FORMAT));
                             break;
-                        }
-                        case PropertyType.DATE: {
-                            arrayNode.add(value.getDate().toString());
+                        case PropertyType.DECIMAL:
+                            arrayNode.add(value.getDecimal());
                             break;
-                        }
-                        case PropertyType.LONG: {
+                        case PropertyType.DOUBLE:
+                            arrayNode.add(value.getDouble());
+                            break;
+                        case PropertyType.LONG:
                             arrayNode.add(value.getLong());
                             break;
-                        }
-                        default: {
+                        default:
                             arrayNode.add(value.getString());
-                        }
                     }
-                    ((ObjectNode) jsonProperties).put(property.getName(), arrayNode);
+                    jsonProperties.put(property.getName(), arrayNode);
                 }
             } else {
                 switch (property.getType()) {
-                    case PropertyType.BOOLEAN: {
-                        ((ObjectNode) jsonProperties).put(property.getName(), property.getValue().getBoolean());
+                    case PropertyType.BOOLEAN:
+                        jsonProperties.put(property.getName(), property.getValue().getBoolean());
                         break;
-                    }
-                    case PropertyType.STRING: {
-                        ((ObjectNode) jsonProperties).put(property.getName(), property.getValue().getString());
+                    case PropertyType.DATE:
+                        jsonProperties.put(property.getName(), getFormattedDate(property.getValue().getDate().getTime(), DATE_FORMAT));
                         break;
-                    }
-                    case PropertyType.DATE: {
-                        ((ObjectNode) jsonProperties).put(property.getName(), property.getValue().getDate().toString());
+                    case PropertyType.DECIMAL:
+                        jsonProperties.put(property.getName(), property.getValue().getDecimal());
                         break;
-                    }
-                    case PropertyType.LONG: {
-                        ((ObjectNode) jsonProperties).put(property.getName(), property.getValue().getLong());
+                    case PropertyType.DOUBLE:
+                        jsonProperties.put(property.getName(), property.getValue().getDouble());
                         break;
-                    }
-                    default: {
-                        ((ObjectNode) jsonProperties).put(property.getName(), property.getValue().getString());
-                    }
+                    case PropertyType.LONG:
+                        jsonProperties.put(property.getName(), property.getValue().getLong());
+                        break;
+                    default:
+                        jsonProperties.put(property.getName(), property.getValue().getString());
                 }
             }
         }
@@ -141,8 +142,10 @@ public class ContentExporterServiceImpl implements ContentExporterService {
         String queryString = "SELECT * FROM [nt:base] AS node WHERE ISDESCENDANTNODE(node, \"" + path + "\")";
         List<Node> nodeList = new ArrayList<>();
         NodeIterator nodeIterator = executeQuery(session, queryString);
-        while (nodeIterator.hasNext()) {
-            nodeList.add(nodeIterator.nextNode());
+        if (Objects.nonNull(nodeIterator)) {
+            while (nodeIterator.hasNext()) {
+                nodeList.add(nodeIterator.nextNode());
+            }
         }
         return nodeList;
     }
@@ -157,5 +160,10 @@ public class ContentExporterServiceImpl implements ContentExporterService {
             logger.error("Query Exception: {}", e.getMessage());
         }
         return null;
+    }
+
+    private String getFormattedDate(Date date, String format) {
+        SimpleDateFormat dateFormatter = new SimpleDateFormat(format);
+        return dateFormatter.format(date);
     }
 }
