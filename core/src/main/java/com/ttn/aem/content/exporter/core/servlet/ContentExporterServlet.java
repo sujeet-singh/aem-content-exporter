@@ -1,6 +1,7 @@
 package com.ttn.aem.content.exporter.core.servlet;
 
 import com.day.cq.wcm.api.Page;
+import com.day.cq.wcm.api.PageManager;
 import com.ttn.aem.content.exporter.core.service.ContentExporterService;
 import org.apache.sling.api.SlingHttpServletRequest;
 import org.apache.sling.api.SlingHttpServletResponse;
@@ -38,15 +39,18 @@ public class ContentExporterServlet extends SlingSafeMethodsServlet {
         LOG.info("Inside {}", this.getClass().getName());
 
         ResourceResolver resourceResolver = request.getResourceResolver();
-        Page page = request.getResource().adaptTo(Page.class);
+        PageManager pageManager = resourceResolver.adaptTo(PageManager.class);
+        Page page = pageManager.getContainingPage(request.getResource());
+
+        response.setContentType("application/json");
+        response.setCharacterEncoding("utf-8");
+
         if (Objects.nonNull(page)) {
             String composedJson = contentExporterService.composeJson(resourceResolver, page);
             response.getWriter().write(composedJson);
         } else {
-            response.getWriter().write("Not a Page");
+            response.getWriter().write("Invalid Path");
         }
 
-        response.setContentType("application/json");
-        response.setCharacterEncoding("utf-8");
     }
 }
