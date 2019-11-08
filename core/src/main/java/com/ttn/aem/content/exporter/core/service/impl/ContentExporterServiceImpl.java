@@ -7,10 +7,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.ttn.aem.content.exporter.core.service.ContentExporterService;
+import com.ttn.aem.content.exporter.core.service.ResourceValidatorService;
 import com.ttn.aem.content.exporter.core.service.config.ContentExporterServiceConfig;
+import org.apache.sling.api.resource.Resource;
 import org.apache.sling.api.resource.ResourceResolver;
 import org.osgi.framework.Constants;
 import org.osgi.service.component.annotations.Component;
+import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.metatype.annotations.Designate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,11 +34,14 @@ import java.util.Objects;
         })
 @Designate(ocd = ContentExporterServiceConfig.class)
 public class ContentExporterServiceImpl implements ContentExporterService {
+
     private static final String PAGE_PROPERTIES = "pageProperties";
     private static final String DATE_FORMAT = "dd MMM yyyy, EEEE";
     private static final String CONTENT = "content";
     private Logger logger = LoggerFactory.getLogger(this.getClass());
 
+    @Reference
+    private ResourceValidatorService resourceValidatorService;
 
     @Override
     public String composeJson(ResourceResolver resolver, Page page) {
@@ -54,7 +60,7 @@ public class ContentExporterServiceImpl implements ContentExporterService {
             ((ObjectNode) rootNode).set(PAGE_PROPERTIES, createPageJson(mapper, page));
 
             // Creating Page Content Json
-            ((ObjectNode) rootNode).set(CONTENT, createPageContent(mapper, nodeList, path));
+            ((ObjectNode) rootNode).set(CONTENT, createPageContent(resolver, mapper, nodeList, path));
 
             return mapper.writeValueAsString(rootNode);
         } catch (RepositoryException | JsonProcessingException e) {
@@ -66,72 +72,75 @@ public class ContentExporterServiceImpl implements ContentExporterService {
 
     private JsonNode createPageJson(ObjectMapper mapper, Page page) throws RepositoryException {
         Node jcrContentNode = page.getContentResource().adaptTo(Node.class);
-        return createPropertyJsonObject(mapper, jcrContentNode);
+        return createPropertyJsonObject(null, mapper, jcrContentNode);
     }
 
-    private JsonNode createPageContent(ObjectMapper mapper, List<Node> nodeList, String path) throws RepositoryException {
+    private JsonNode createPageContent(ResourceResolver resolver, ObjectMapper mapper, List<Node> nodeList, String path) throws RepositoryException {
         ObjectNode propertyJsonObject = mapper.createObjectNode();
         for (Node node : nodeList) {
-            String searchPath = node.getParent().getPath().replace(path, "");
-            JsonNode childNode = propertyJsonObject.at(searchPath);
-            if (Objects.nonNull(childNode)) {
-                ((ObjectNode) childNode).put(node.getName(), createPropertyJsonObject(mapper, node));
-            } else {
-                propertyJsonObject.put(node.getName(), createPropertyJsonObject(mapper, node));
+            Resource resource = resolver.getResource(node.getPath());
+            if (resourceValidatorService.isValid(resource)) {
+                String searchPath = node.getParent().getPath().replace(path, "");
+                JsonNode childNode = propertyJsonObject.at(searchPath);
+                if (!childNode.isMissingNode()) {
+                    ((ObjectNode) childNode).put(node.getName(), createPropertyJsonObject(resource, mapper, node));
+                }
             }
         }
 
         return propertyJsonObject;
     }
 
-    private JsonNode createPropertyJsonObject(ObjectMapper mapper, Node node) throws RepositoryException {
+    private JsonNode createPropertyJsonObject(Resource resource, ObjectMapper mapper, Node node) throws RepositoryException {
         ObjectNode jsonProperties = mapper.createObjectNode();
         PropertyIterator properties = node.getProperties();
         while (properties.hasNext()) {
             Property property = properties.nextProperty();
-            ArrayNode arrayNode = mapper.createArrayNode();
-            if (property.isMultiple()) {
-                for (Value value : property.getValues()) {
+            if (resourceValidatorService.isValid(property.getName(), resource)) {
+                ArrayNode arrayNode = mapper.createArrayNode();
+                if (property.isMultiple()) {
+                    for (Value value : property.getValues()) {
+                        switch (property.getType()) {
+                            case PropertyType.BOOLEAN:
+                                arrayNode.add(value.getBoolean());
+                                break;
+                            case PropertyType.DATE:
+                                arrayNode.add(getFormattedDate(value.getDate().getTime(), DATE_FORMAT));
+                                break;
+                            case PropertyType.DECIMAL:
+                                arrayNode.add(value.getDecimal());
+                                break;
+                            case PropertyType.DOUBLE:
+                                arrayNode.add(value.getDouble());
+                                break;
+                            case PropertyType.LONG:
+                                arrayNode.add(value.getLong());
+                                break;
+                            default:
+                                arrayNode.add(value.getString());
+                        }
+                        jsonProperties.put(property.getName(), arrayNode);
+                    }
+                } else {
                     switch (property.getType()) {
                         case PropertyType.BOOLEAN:
-                            arrayNode.add(value.getBoolean());
+                            jsonProperties.put(property.getName(), property.getValue().getBoolean());
                             break;
                         case PropertyType.DATE:
-                            arrayNode.add(getFormattedDate(value.getDate().getTime(), DATE_FORMAT));
+                            jsonProperties.put(property.getName(), getFormattedDate(property.getValue().getDate().getTime(), DATE_FORMAT));
                             break;
                         case PropertyType.DECIMAL:
-                            arrayNode.add(value.getDecimal());
+                            jsonProperties.put(property.getName(), property.getValue().getDecimal());
                             break;
                         case PropertyType.DOUBLE:
-                            arrayNode.add(value.getDouble());
+                            jsonProperties.put(property.getName(), property.getValue().getDouble());
                             break;
                         case PropertyType.LONG:
-                            arrayNode.add(value.getLong());
+                            jsonProperties.put(property.getName(), property.getValue().getLong());
                             break;
                         default:
-                            arrayNode.add(value.getString());
+                            jsonProperties.put(property.getName(), property.getValue().getString());
                     }
-                    jsonProperties.put(property.getName(), arrayNode);
-                }
-            } else {
-                switch (property.getType()) {
-                    case PropertyType.BOOLEAN:
-                        jsonProperties.put(property.getName(), property.getValue().getBoolean());
-                        break;
-                    case PropertyType.DATE:
-                        jsonProperties.put(property.getName(), getFormattedDate(property.getValue().getDate().getTime(), DATE_FORMAT));
-                        break;
-                    case PropertyType.DECIMAL:
-                        jsonProperties.put(property.getName(), property.getValue().getDecimal());
-                        break;
-                    case PropertyType.DOUBLE:
-                        jsonProperties.put(property.getName(), property.getValue().getDouble());
-                        break;
-                    case PropertyType.LONG:
-                        jsonProperties.put(property.getName(), property.getValue().getLong());
-                        break;
-                    default:
-                        jsonProperties.put(property.getName(), property.getValue().getString());
                 }
             }
         }

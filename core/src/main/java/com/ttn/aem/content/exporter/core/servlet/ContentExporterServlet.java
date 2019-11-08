@@ -3,6 +3,7 @@ package com.ttn.aem.content.exporter.core.servlet;
 import com.day.cq.wcm.api.Page;
 import com.day.cq.wcm.api.PageManager;
 import com.ttn.aem.content.exporter.core.service.ContentExporterService;
+import com.ttn.aem.content.exporter.core.service.ResourceValidatorService;
 import org.apache.sling.api.SlingHttpServletRequest;
 import org.apache.sling.api.SlingHttpServletResponse;
 import org.apache.sling.api.resource.ResourceResolver;
@@ -33,6 +34,8 @@ public class ContentExporterServlet extends SlingSafeMethodsServlet {
 
     @Reference
     private ContentExporterService contentExporterService;
+    @Reference
+    private ResourceValidatorService resourceValidatorService;
 
     @Override
     protected void doGet(SlingHttpServletRequest request, SlingHttpServletResponse response) throws ServletException, IOException {
@@ -45,7 +48,7 @@ public class ContentExporterServlet extends SlingSafeMethodsServlet {
         response.setContentType("application/json");
         response.setCharacterEncoding("utf-8");
 
-        if (Objects.nonNull(page)) {
+        if (Objects.nonNull(page) && resourceValidatorService.isValid(page)) {
             String composedJson = contentExporterService.composeJson(resourceResolver, page);
             response.getWriter().write(composedJson);
         } else {

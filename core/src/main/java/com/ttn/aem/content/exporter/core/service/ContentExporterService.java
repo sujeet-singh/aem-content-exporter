@@ -5,5 +5,6 @@ import org.apache.sling.api.resource.ResourceResolver;
 
 public interface ContentExporterService {
 
-    public String composeJson(ResourceResolver resourceResolver, Page path);
+    String composeJson(ResourceResolver resourceResolver, Page page);
+
 }
