@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.ttn.aem.content.exporter.core.service.ContentExporterService;
 import com.ttn.aem.content.exporter.core.service.ResourceValidatorService;
 import com.ttn.aem.content.exporter.core.service.config.ContentExporterServiceConfig;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.sling.api.resource.Resource;
 import org.apache.sling.api.resource.ResourceResolver;
 import org.osgi.framework.Constants;
@@ -38,6 +39,7 @@ public class ContentExporterServiceImpl implements ContentExporterService {
     private static final String PAGE_PROPERTIES = "pageProperties";
     private static final String DATE_FORMAT = "dd MMM yyyy, EEEE";
     private static final String CONTENT = "content";
+    private static final String PATH_SEPARATOR = "/";
     private Logger logger = LoggerFactory.getLogger(this.getClass());
 
     @Reference
@@ -72,24 +74,51 @@ public class ContentExporterServiceImpl implements ContentExporterService {
 
     private JsonNode createPageJson(ObjectMapper mapper, Page page) throws RepositoryException {
         Node jcrContentNode = page.getContentResource().adaptTo(Node.class);
-        return createPropertyJsonObject(null, mapper, jcrContentNode);
+        return createPropertyJsonObject(page.getContentResource(), mapper, jcrContentNode);
     }
 
     private JsonNode createPageContent(ResourceResolver resolver, ObjectMapper mapper, List<Node> nodeList, String path) throws RepositoryException {
         ObjectNode propertyJsonObject = mapper.createObjectNode();
+        String excludeComponentsParentPath = null;
         for (Node node : nodeList) {
             Resource resource = resolver.getResource(node.getPath());
-            if (resourceValidatorService.isValid(resource)) {
-                String searchPath = node.getParent().getPath().replace(path, "");
-                JsonNode childNode = propertyJsonObject.at(searchPath);
-                if (!childNode.isMissingNode()) {
-                    ((ObjectNode) childNode).put(node.getName(), createPropertyJsonObject(resource, mapper, node));
+            if (resourceValidatorService.isValid(resource) && StringUtils.isEmpty(excludeComponentsParentPath)) {
+                if (resourceValidatorService.isContainer(resource)) {
+                    if (!resourceValidatorService.mergeContainer(resource)) {
+                        // Find parent add node
+                        ((ObjectNode) getParentNode(propertyJsonObject, node, path)).put(node.getName(), createPropertyJsonObject(resource, mapper, node));
+                    }
+                } else {
+                    ((ObjectNode) getParentNode(propertyJsonObject, node, path)).put(node.getName(), createPropertyJsonObject(resource, mapper, node));
+                }
+            } else {
+                if (StringUtils.isEmpty(excludeComponentsParentPath)) {
+                    excludeComponentsParentPath = resource.getPath();
+                } else if (!resource.getPath().contains(excludeComponentsParentPath)) {
+                    excludeComponentsParentPath = null;
                 }
             }
         }
-
         return propertyJsonObject;
     }
+
+    private JsonNode getParentNode(ObjectNode propertyJsonObject, Node node, String path) throws RepositoryException {
+        String searchPath = node.getParent().getPath().replace(path, "");
+        String[] paths = searchPath.replaceFirst(PATH_SEPARATOR, "").split(PATH_SEPARATOR);
+        StringBuilder fullPath = new StringBuilder();
+        for (String key : paths) {
+            String tempPath = fullPath + PATH_SEPARATOR + key;
+            if (!propertyJsonObject.at(tempPath).isMissingNode()) {
+                fullPath.append(PATH_SEPARATOR + key);
+            }
+        }
+        if (StringUtils.isEmpty(fullPath)) {
+            return propertyJsonObject;
+        } else {
+            return propertyJsonObject.at(fullPath.toString());
+        }
+    }
+
 
     private JsonNode createPropertyJsonObject(Resource resource, ObjectMapper mapper, Node node) throws RepositoryException {
         ObjectNode jsonProperties = mapper.createObjectNode();

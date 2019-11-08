@@ -18,4 +18,7 @@ public @interface ResourceValidatorServiceConfig {
     @AttributeDefinition(name = "Excluded Properties in declared components", description = "Properties configured here will be blocked by content exporter service in configured component. Define properties for one component at a time. For ex. 'my-project/components/content/profile=emailId,password'")
     String[] excludedComponentProperties();
 
+    @AttributeDefinition(name = "Excluded Container components", description = "Properties configured here will be remove container if defined property is not available at container component. Define properties for one container at a time. For ex. 'my-project/components/content/container=title,text'")
+    String[] excludedContainerComponents();
+
 }
