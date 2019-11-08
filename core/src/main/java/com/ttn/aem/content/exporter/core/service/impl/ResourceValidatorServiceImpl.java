@@ -69,13 +69,13 @@ public class ResourceValidatorServiceImpl implements ResourceValidatorService {
         if (serviceConfig.serviceDisabled()) {
             return Boolean.TRUE;
         }
-        if (Objects.nonNull(resource) && compPropMap != null && compPropMap.containsKey(resource.getResourceType())) {
+        if (Objects.nonNull(resource) && Objects.nonNull(compPropMap) && compPropMap.containsKey(resource.getResourceType())) {
             List<String> props = compPropMap.get(resource.getResourceType());
             boolean isValid = BooleanUtils.isFalse(props.contains(propertyName));
             return (isValid) ? isNotExcludedInGenericConfig(propertyName) : Boolean.FALSE;
-        } else {
-            return isNotExcludedInGenericConfig(propertyName);
         }
+        return isNotExcludedInGenericConfig(propertyName);
+
     }
 
     private boolean isNotExcludedInGenericConfig(String propertyName) {
