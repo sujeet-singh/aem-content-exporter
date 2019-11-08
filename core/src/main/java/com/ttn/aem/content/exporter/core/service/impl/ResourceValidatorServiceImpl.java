@@ -11,6 +11,7 @@ import org.osgi.service.component.annotations.Component;
 import org.osgi.service.metatype.annotations.Designate;
 
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Component(service = ResourceValidatorService.class,
@@ -49,7 +50,9 @@ public class ResourceValidatorServiceImpl implements ResourceValidatorService {
             List<String> props = compPropMap.get(resource.getResourceType());
             isExcludedInGenericPropertySet = props.contains(propertyName);
         } else {
-            isExcludedInGenericPropertySet = Arrays.asList(serviceConfig.excludedProperties()).contains(propertyName);
+            isExcludedInGenericPropertySet = Arrays.asList(serviceConfig.excludedProperties()).stream().
+                    map(prop -> Pattern.compile(prop)).
+                    anyMatch(pattern -> pattern.matcher(propertyName).matches());
         }
         return BooleanUtils.isFalse(isExcludedInGenericPropertySet);
     }
