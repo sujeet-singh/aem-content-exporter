@@ -83,8 +83,8 @@ public class ResourceValidatorServiceImpl implements ResourceValidatorService {
     }
 
     private boolean isNotExcludedInGenericConfig(String propertyName) {
-        return Arrays.asList(serviceConfig.excludedProperties()).stream()
-                .map(prop -> Pattern.compile(prop))
+        return Arrays.stream(serviceConfig.excludedProperties())
+                .map(Pattern::compile)
                 .noneMatch(pattern -> pattern.matcher(propertyName).matches());
     }
 
