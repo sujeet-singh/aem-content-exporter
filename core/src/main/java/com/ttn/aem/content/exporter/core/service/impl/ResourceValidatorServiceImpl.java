@@ -27,6 +27,8 @@ public class ResourceValidatorServiceImpl implements ResourceValidatorService {
 
     private Map<String, List<String>> compPropMap;
 
+    private Map<String, List<String>> containerCompPropMap;
+
     @Activate
     @Modified
     public void activate(ResourceValidatorServiceConfig config) {
@@ -36,11 +38,18 @@ public class ResourceValidatorServiceImpl implements ResourceValidatorService {
                 .map(compProp -> compProp.split("="))
                 .collect(Collectors.toMap(a -> a[0],
                         a -> (a.length > 1) ? Arrays.stream(a[1].split(",")).collect(Collectors.toList()) : Collections.emptyList()));
+
+        List<String> excludedContainerCompProps = Arrays.asList(serviceConfig.excludedContainerComponents());
+        containerCompPropMap = excludedContainerCompProps.stream()
+                .map(compProp -> compProp.split("="))
+                .collect(Collectors.toMap(a -> a[0],
+                        a -> (a.length > 1) ? Arrays.stream(a[1].split(",")).collect(Collectors.toList()) : Collections.emptyList()));
     }
 
     @Deactivate
     public void deactivate() {
         this.compPropMap = null;
+        this.containerCompPropMap = null;
     }
 
     @Override
@@ -48,7 +57,7 @@ public class ResourceValidatorServiceImpl implements ResourceValidatorService {
         if (serviceConfig.serviceDisabled()) {
             return true;
         }
-        return !Arrays.asList(serviceConfig.excludedPages()).contains(page.getPath()) && page.isValid();
+        return BooleanUtils.isFalse(Arrays.asList(serviceConfig.excludedPages()).contains(page.getPath()) && page.isValid());
     }
 
     @Override
@@ -56,56 +65,45 @@ public class ResourceValidatorServiceImpl implements ResourceValidatorService {
         if (serviceConfig.serviceDisabled()) {
             return true;
         }
-        return !Arrays.asList(serviceConfig.excludedComponents()).contains(resource.getResourceType());
+        return BooleanUtils.isFalse(Arrays.asList(serviceConfig.excludedComponents()).contains(resource.getResourceType()));
     }
 
     @Override
     public boolean isValid(String propertyName, Resource resource) {
         if (serviceConfig.serviceDisabled()) {
-            return true;
+            return Boolean.TRUE;
         }
-        boolean isExcludedInGenericPropertySet;
         if (Objects.nonNull(resource) && compPropMap != null && compPropMap.containsKey(resource.getResourceType())) {
             List<String> props = compPropMap.get(resource.getResourceType());
-            isExcludedInGenericPropertySet = props.contains(propertyName);
-            if (!isExcludedInGenericPropertySet) {
-                isExcludedInGenericPropertySet = Arrays.asList(serviceConfig.excludedProperties()).stream().
-                        map(prop -> Pattern.compile(prop)).
-                        anyMatch(pattern -> pattern.matcher(propertyName).matches());
-            }
+            boolean isValid = BooleanUtils.isFalse(props.contains(propertyName));
+            return (isValid) ? isNotExcludedInGenericConfig(propertyName) : Boolean.FALSE;
         } else {
-            isExcludedInGenericPropertySet = Arrays.asList(serviceConfig.excludedProperties()).stream().
-                    map(prop -> Pattern.compile(prop)).
-                    anyMatch(pattern -> pattern.matcher(propertyName).matches());
+            return isNotExcludedInGenericConfig(propertyName);
         }
-        return BooleanUtils.isFalse(isExcludedInGenericPropertySet);
+    }
+
+    private boolean isNotExcludedInGenericConfig(String propertyName) {
+        return Arrays.asList(serviceConfig.excludedProperties()).stream()
+                .map(prop -> Pattern.compile(prop))
+                .noneMatch(pattern -> pattern.matcher(propertyName).matches());
     }
 
     @Override
     public boolean isContainer(Resource resource) {
-        List<String> excludedContainerCompProps = Arrays.asList(serviceConfig.excludedContainerComponents());
-        Map<String, List<String>> containerCompPropMap = excludedContainerCompProps.stream()
-                .map(compProp -> compProp.split("="))
-                .collect(Collectors.toMap(a -> a[0],
-                        a -> (a.length > 1) ? Arrays.stream(a[1].split(",")).collect(Collectors.toList()) : Collections.emptyList()));
+        if (serviceConfig.serviceDisabled()) {
+            return Boolean.TRUE;
+        }
         return Objects.nonNull(resource) && containerCompPropMap.containsKey(resource.getResourceType());
     }
 
     @Override
     public boolean mergeContainer(Resource resource) {
-        List<String> excludedContainerCompProps = Arrays.asList(serviceConfig.excludedContainerComponents());
-        Map<String, List<String>> containerCompPropMap = excludedContainerCompProps.stream()
-                .map(compProp -> compProp.split("="))
-                .collect(Collectors.toMap(a -> a[0],
-                        a -> (a.length > 1) ? Arrays.stream(a[1].split(",")).collect(Collectors.toList()) : Collections.emptyList()));
-        if (Objects.nonNull(resource) && containerCompPropMap.containsKey(resource.getResourceType())) {
-            List<String> props = containerCompPropMap.get(resource.getResourceType());
-            for (String propertyName : props) {
-                if (resource.getValueMap().containsKey(propertyName)) {
-                    return false;
-                }
-            }
+        if (serviceConfig.serviceDisabled() ||
+                Objects.isNull(resource) ||
+                !containerCompPropMap.containsKey(resource.getResourceType())) {
+            return Boolean.TRUE;
         }
-        return true;
+        List<String> props = containerCompPropMap.get(resource.getResourceType());
+        return props.stream().noneMatch(prop -> resource.getValueMap().containsKey(prop));
     }
 }
