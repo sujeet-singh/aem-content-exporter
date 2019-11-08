@@ -10,10 +10,7 @@ import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.metatype.annotations.Designate;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Component(service = ResourceValidatorService.class,
@@ -48,10 +45,9 @@ public class ResourceValidatorServiceImpl implements ResourceValidatorService {
                 .collect(Collectors.toMap(a-> a[0],
                         a -> (a.length > 1) ? Arrays.stream(a[1].split(",")).collect(Collectors.toList()) : Collections.emptyList()));
         boolean isExcludedInGenericPropertySet;
-        if(compPropMap.containsKey(resource.getResourceType())){
+        if( Objects.nonNull(resource) && compPropMap.containsKey(resource.getResourceType())){
             List<String> props = compPropMap.get(resource.getResourceType());
             isExcludedInGenericPropertySet = props.contains(propertyName);
-
         } else {
             isExcludedInGenericPropertySet = Arrays.asList(serviceConfig.excludedProperties()).contains(propertyName);
         }
