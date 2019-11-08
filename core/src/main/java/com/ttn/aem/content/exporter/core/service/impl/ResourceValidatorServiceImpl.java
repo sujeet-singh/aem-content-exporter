@@ -54,18 +54,14 @@ public class ResourceValidatorServiceImpl implements ResourceValidatorService {
 
     @Override
     public boolean isValid(Page page) {
-        if (serviceConfig.serviceDisabled()) {
-            return true;
-        }
-        return BooleanUtils.isFalse(Arrays.asList(serviceConfig.excludedPages()).contains(page.getPath()) && page.isValid());
+        return serviceConfig.serviceDisabled()
+                || BooleanUtils.isFalse(Arrays.asList(serviceConfig.excludedPages()).contains(page.getPath()) && page.isValid());
     }
 
     @Override
     public boolean isValid(Resource resource) {
-        if (serviceConfig.serviceDisabled()) {
-            return true;
-        }
-        return BooleanUtils.isFalse(Arrays.asList(serviceConfig.excludedComponents()).contains(resource.getResourceType()));
+        return serviceConfig.serviceDisabled()
+                || BooleanUtils.isFalse(Arrays.asList(serviceConfig.excludedComponents()).contains(resource.getResourceType()));
     }
 
     @Override
@@ -90,20 +86,16 @@ public class ResourceValidatorServiceImpl implements ResourceValidatorService {
 
     @Override
     public boolean isContainer(Resource resource) {
-        if (serviceConfig.serviceDisabled()) {
-            return Boolean.TRUE;
-        }
-        return Objects.nonNull(resource) && containerCompPropMap.containsKey(resource.getResourceType());
+        return serviceConfig.serviceDisabled()
+                || (Objects.nonNull(resource) && containerCompPropMap.containsKey(resource.getResourceType()));
     }
 
     @Override
     public boolean mergeContainer(Resource resource) {
-        if (serviceConfig.serviceDisabled() ||
-                Objects.isNull(resource) ||
-                !containerCompPropMap.containsKey(resource.getResourceType())) {
-            return Boolean.TRUE;
-        }
         List<String> props = containerCompPropMap.get(resource.getResourceType());
-        return props.stream().noneMatch(prop -> resource.getValueMap().containsKey(prop));
+        return serviceConfig.serviceDisabled()
+                || Objects.isNull(resource)
+                || !containerCompPropMap.containsKey(resource.getResourceType())
+                || props.stream().noneMatch(prop -> resource.getValueMap().containsKey(prop));
     }
 }
