@@ -3,6 +3,7 @@ package com.ttn.aem.content.exporter.core.service.impl;
 import com.day.cq.wcm.api.Page;
 import com.ttn.aem.content.exporter.core.service.ResourceValidatorService;
 import com.ttn.aem.content.exporter.core.service.config.ResourceValidatorServiceConfig;
+import org.apache.commons.lang3.BooleanUtils;
 import org.apache.sling.api.resource.Resource;
 import org.osgi.framework.Constants;
 import org.osgi.service.component.annotations.Activate;
@@ -10,6 +11,10 @@ import org.osgi.service.component.annotations.Component;
 import org.osgi.service.metatype.annotations.Designate;
 
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Component(service = ResourceValidatorService.class,
         property = {
@@ -37,6 +42,19 @@ public class ResourceValidatorServiceImpl implements ResourceValidatorService {
 
     @Override
     public boolean isValid(String propertyName, Resource resource) {
-        return true;
+        List<String> excludedCompProps = Arrays.asList(serviceConfig.excludedComponentProperties());
+        Map<String, List<String>> compPropMap = excludedCompProps.stream()
+                .map(compProp -> compProp.split("="))
+                .collect(Collectors.toMap(a-> a[0],
+                        a -> (a.length > 1) ? Arrays.stream(a[1].split(",")).collect(Collectors.toList()) : Collections.emptyList()));
+        boolean isExcludedInGenericPropertySet;
+        if(compPropMap.containsKey(resource.getResourceType())){
+            List<String> props = compPropMap.get(resource.getResourceType());
+            isExcludedInGenericPropertySet = props.contains(propertyName);
+
+        } else {
+            isExcludedInGenericPropertySet = Arrays.asList(serviceConfig.excludedProperties()).contains(propertyName);
+        }
+        return BooleanUtils.isFalse(isExcludedInGenericPropertySet);
     }
 }
