@@ -6,6 +6,9 @@ import org.osgi.service.metatype.annotations.ObjectClassDefinition;
 @ObjectClassDefinition(name = "AEM Content Exporter: Resource Validator Configuration")
 public @interface ResourceValidatorServiceConfig {
 
+    @AttributeDefinition(name = "Service Disabled?", description = "Check to disable validations. By Default, All properties are allowed.")
+    boolean serviceDisabled() default false;
+
     @AttributeDefinition(name = "Excluded Pages", description = "Pages configured here will ne blocked by content exporter service. For ex. '/content/my-project/us/en/homepage'")
     String[] excludedPages();
 
