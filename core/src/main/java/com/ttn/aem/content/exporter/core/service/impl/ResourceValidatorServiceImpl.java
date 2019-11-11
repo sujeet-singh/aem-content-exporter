@@ -84,18 +84,13 @@ public class ResourceValidatorServiceImpl implements ResourceValidatorService {
                 .noneMatch(pattern -> pattern.matcher(propertyName).matches());
     }
 
-    @Override
-    public boolean isContainer(Resource resource) {
-        return serviceConfig.serviceDisabled()
-                || (Objects.nonNull(resource) && containerCompPropMap.containsKey(resource.getResourceType()));
-    }
 
     @Override
     public boolean mergeContainer(Resource resource) {
         List<String> props = containerCompPropMap.get(resource.getResourceType());
         return serviceConfig.serviceDisabled()
                 || Objects.isNull(resource)
-                || !containerCompPropMap.containsKey(resource.getResourceType())
-                || props.stream().noneMatch(prop -> resource.getValueMap().containsKey(prop));
+                || (containerCompPropMap.containsKey(resource.getResourceType())
+                && props.stream().noneMatch(prop -> resource.getValueMap().containsKey(prop)));
     }
 }

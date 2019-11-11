@@ -11,7 +11,5 @@ public interface ResourceValidatorService {
 
     boolean isValid(String propertyName, Resource resource);
 
-    boolean isContainer(Resource resource);
-
     boolean mergeContainer(Resource resource);
 }
