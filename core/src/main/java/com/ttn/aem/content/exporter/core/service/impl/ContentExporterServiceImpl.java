@@ -9,7 +9,9 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.ttn.aem.content.exporter.core.service.ContentExporterService;
 import com.ttn.aem.content.exporter.core.service.ResourceValidatorService;
 import com.ttn.aem.content.exporter.core.service.config.ContentExporterServiceConfig;
+import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.jackrabbit.vault.util.JcrConstants;
 import org.apache.sling.api.resource.Resource;
 import org.apache.sling.api.resource.ResourceResolver;
 import org.osgi.framework.Constants;
@@ -29,6 +31,8 @@ import java.util.Date;
 import java.util.List;
 import java.util.Objects;
 
+import static org.apache.sling.jcr.resource.JcrResourceConstants.SLING_RESOURCE_TYPE_PROPERTY;
+
 @Component(service = ContentExporterService.class,
         property = {
                 Constants.SERVICE_DESCRIPTION + "=AEM Content Exporter: Content Exporter Service",
@@ -38,8 +42,9 @@ public class ContentExporterServiceImpl implements ContentExporterService {
 
     private static final String PAGE_PROPERTIES = "pageProperties";
     private static final String DATE_FORMAT = "dd MMM yyyy, EEEE";
-    private static final String CONTENT = "content";
+    private static final String CONTENT_STRUCTURE = "contentStructure";
     private static final String PATH_SEPARATOR = "/";
+    private static final String COMPONENT_TYPE = "componentType";
     private Logger logger = LoggerFactory.getLogger(this.getClass());
 
     @Reference
@@ -59,10 +64,10 @@ public class ContentExporterServiceImpl implements ContentExporterService {
 
         try {
             // Creating Page Properties Json
-            ((ObjectNode) rootNode).set(PAGE_PROPERTIES, createPageJson(mapper, page));
+            ((ObjectNode) rootNode).set(PAGE_PROPERTIES, createPageJson(resolver, mapper, page));
 
             // Creating Page Content Json
-            ((ObjectNode) rootNode).set(CONTENT, createPageContent(resolver, mapper, nodeList, path));
+            ((ObjectNode) rootNode).set(CONTENT_STRUCTURE, createPageContent(resolver, mapper, nodeList, path));
 
             return mapper.writeValueAsString(rootNode);
         } catch (RepositoryException | JsonProcessingException e) {
@@ -72,9 +77,9 @@ public class ContentExporterServiceImpl implements ContentExporterService {
         return null;
     }
 
-    private JsonNode createPageJson(ObjectMapper mapper, Page page) throws RepositoryException {
+    private JsonNode createPageJson(ResourceResolver resolver, ObjectMapper mapper, Page page) throws RepositoryException {
         Node jcrContentNode = page.getContentResource().adaptTo(Node.class);
-        return createPropertyJsonObject(page.getContentResource(), mapper, jcrContentNode);
+        return createPropertyJsonObject(resolver, page.getContentResource(), mapper, jcrContentNode);
     }
 
     private JsonNode createPageContent(ResourceResolver resolver, ObjectMapper mapper, List<Node> nodeList, String path) throws RepositoryException {
@@ -83,97 +88,107 @@ public class ContentExporterServiceImpl implements ContentExporterService {
         for (Node node : nodeList) {
             Resource resource = resolver.getResource(node.getPath());
             if (resourceValidatorService.isValid(resource) && StringUtils.isEmpty(excludeComponentsParentPath)) {
-                if (resourceValidatorService.isContainer(resource)) {
-                    if (!resourceValidatorService.mergeContainer(resource)) {
-                        // Find parent add node
-                        ((ObjectNode) getParentNode(propertyJsonObject, node, path)).put(node.getName(), createPropertyJsonObject(resource, mapper, node));
-                    }
-                } else {
-                    ((ObjectNode) getParentNode(propertyJsonObject, node, path)).put(node.getName(), createPropertyJsonObject(resource, mapper, node));
+                if (BooleanUtils.isFalse(resourceValidatorService.mergeContainer(resource))) {
+                    ((ObjectNode) getParentNode(propertyJsonObject, node, path)).put(node.getName(), createPropertyJsonObject(resolver, resource, mapper, node));
                 }
             } else {
-                if (StringUtils.isEmpty(excludeComponentsParentPath)) {
-                    excludeComponentsParentPath = resource.getPath();
-                } else if (!resource.getPath().contains(excludeComponentsParentPath)) {
-                    excludeComponentsParentPath = null;
-                }
+                excludeComponentsParentPath = StringUtils.isNotEmpty(excludeComponentsParentPath)
+                        && !resource.getPath().contains(excludeComponentsParentPath) ? null : resource.getPath();
             }
         }
         return propertyJsonObject;
+    }
+
+    private String getName(Node node, ResourceResolver resolver) throws RepositoryException {
+        if (node.hasProperty(SLING_RESOURCE_TYPE_PROPERTY)) {
+            Resource component = resolver.getResource(node.getProperty(SLING_RESOURCE_TYPE_PROPERTY).getString());
+            if (Objects.nonNull(component)) {
+                String title = component.getValueMap().get(JcrConstants.JCR_TITLE).toString();
+                if (Objects.nonNull(title)) {
+                    return title.toLowerCase().replace(" ", "-");
+                }
+            }
+        }
+        return null;
     }
 
     private JsonNode getParentNode(ObjectNode propertyJsonObject, Node node, String path) throws RepositoryException {
         String searchPath = node.getParent().getPath().replace(path, "");
         String[] paths = searchPath.replaceFirst(PATH_SEPARATOR, "").split(PATH_SEPARATOR);
         StringBuilder fullPath = new StringBuilder();
+
         for (String key : paths) {
             String tempPath = fullPath + PATH_SEPARATOR + key;
             if (!propertyJsonObject.at(tempPath).isMissingNode()) {
                 fullPath.append(PATH_SEPARATOR + key);
             }
         }
-        if (StringUtils.isEmpty(fullPath)) {
-            return propertyJsonObject;
-        } else {
-            return propertyJsonObject.at(fullPath.toString());
-        }
+
+        return StringUtils.isEmpty(fullPath) ? propertyJsonObject : propertyJsonObject.at(fullPath.toString());
     }
 
 
-    private JsonNode createPropertyJsonObject(Resource resource, ObjectMapper mapper, Node node) throws RepositoryException {
+    private JsonNode createPropertyJsonObject(ResourceResolver resolver, Resource resource, ObjectMapper mapper, Node node) throws RepositoryException {
         ObjectNode jsonProperties = mapper.createObjectNode();
         PropertyIterator properties = node.getProperties();
         while (properties.hasNext()) {
             Property property = properties.nextProperty();
             if (resourceValidatorService.isValid(property.getName(), resource)) {
-                ArrayNode arrayNode = mapper.createArrayNode();
-                if (property.isMultiple()) {
-                    for (Value value : property.getValues()) {
-                        switch (property.getType()) {
-                            case PropertyType.BOOLEAN:
-                                arrayNode.add(value.getBoolean());
-                                break;
-                            case PropertyType.DATE:
-                                arrayNode.add(getFormattedDate(value.getDate().getTime(), DATE_FORMAT));
-                                break;
-                            case PropertyType.DECIMAL:
-                                arrayNode.add(value.getDecimal());
-                                break;
-                            case PropertyType.DOUBLE:
-                                arrayNode.add(value.getDouble());
-                                break;
-                            case PropertyType.LONG:
-                                arrayNode.add(value.getLong());
-                                break;
-                            default:
-                                arrayNode.add(value.getString());
-                        }
-                        jsonProperties.put(property.getName(), arrayNode);
-                    }
-                } else {
-                    switch (property.getType()) {
-                        case PropertyType.BOOLEAN:
-                            jsonProperties.put(property.getName(), property.getValue().getBoolean());
-                            break;
-                        case PropertyType.DATE:
-                            jsonProperties.put(property.getName(), getFormattedDate(property.getValue().getDate().getTime(), DATE_FORMAT));
-                            break;
-                        case PropertyType.DECIMAL:
-                            jsonProperties.put(property.getName(), property.getValue().getDecimal());
-                            break;
-                        case PropertyType.DOUBLE:
-                            jsonProperties.put(property.getName(), property.getValue().getDouble());
-                            break;
-                        case PropertyType.LONG:
-                            jsonProperties.put(property.getName(), property.getValue().getLong());
-                            break;
-                        default:
-                            jsonProperties.put(property.getName(), property.getValue().getString());
-                    }
-                }
+                setJsonProperty(mapper, jsonProperties, property);
+                String componentName = getName(node, resolver);
+                if (StringUtils.isNotEmpty(componentName))
+                    jsonProperties.put(COMPONENT_TYPE, componentName);
             }
         }
         return jsonProperties;
+    }
+
+    private void setJsonProperty(ObjectMapper mapper, ObjectNode jsonProperties, Property property) throws RepositoryException {
+        if (property.isMultiple()) {
+            ArrayNode arrayNode = mapper.createArrayNode();
+            for (Value value : property.getValues()) {
+                switch (property.getType()) {
+                    case PropertyType.BOOLEAN:
+                        arrayNode.add(value.getBoolean());
+                        break;
+                    case PropertyType.DATE:
+                        arrayNode.add(getFormattedDate(value.getDate().getTime(), DATE_FORMAT));
+                        break;
+                    case PropertyType.DECIMAL:
+                        arrayNode.add(value.getDecimal());
+                        break;
+                    case PropertyType.DOUBLE:
+                        arrayNode.add(value.getDouble());
+                        break;
+                    case PropertyType.LONG:
+                        arrayNode.add(value.getLong());
+                        break;
+                    default:
+                        arrayNode.add(value.getString());
+                }
+                jsonProperties.put(property.getName(), arrayNode);
+            }
+        } else {
+            switch (property.getType()) {
+                case PropertyType.BOOLEAN:
+                    jsonProperties.put(property.getName(), property.getValue().getBoolean());
+                    break;
+                case PropertyType.DATE:
+                    jsonProperties.put(property.getName(), getFormattedDate(property.getValue().getDate().getTime(), DATE_FORMAT));
+                    break;
+                case PropertyType.DECIMAL:
+                    jsonProperties.put(property.getName(), property.getValue().getDecimal());
+                    break;
+                case PropertyType.DOUBLE:
+                    jsonProperties.put(property.getName(), property.getValue().getDouble());
+                    break;
+                case PropertyType.LONG:
+                    jsonProperties.put(property.getName(), property.getValue().getLong());
+                    break;
+                default:
+                    jsonProperties.put(property.getName(), property.getValue().getString());
+            }
+        }
     }
 
     private List<Node> createNodeList(Session session, String path) {
