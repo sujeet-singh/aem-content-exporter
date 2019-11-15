@@ -88,9 +88,9 @@ public class ResourceValidatorServiceImpl implements ResourceValidatorService {
     @Override
     public boolean mergeContainer(Resource resource) {
         List<String> props = containerCompPropMap.get(resource.getResourceType());
-        return serviceConfig.serviceDisabled()
-                || Objects.isNull(resource)
+        return !serviceConfig.serviceDisabled()
+                && (Objects.isNull(resource)
                 || (containerCompPropMap.containsKey(resource.getResourceType())
-                && props.stream().noneMatch(prop -> resource.getValueMap().containsKey(prop)));
+                && props.stream().noneMatch(prop -> resource.getValueMap().containsKey(prop))));
     }
 }
