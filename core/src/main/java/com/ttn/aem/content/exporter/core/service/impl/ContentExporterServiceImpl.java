@@ -11,7 +11,6 @@ import com.ttn.aem.content.exporter.core.service.ResourceValidatorService;
 import com.ttn.aem.content.exporter.core.service.config.ContentExporterServiceConfig;
 import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.jackrabbit.vault.util.JcrConstants;
 import org.apache.sling.api.resource.Resource;
 import org.apache.sling.api.resource.ResourceResolver;
 import org.osgi.framework.Constants;
@@ -99,15 +98,10 @@ public class ContentExporterServiceImpl implements ContentExporterService {
         return propertyJsonObject;
     }
 
-    private String getName(Node node, ResourceResolver resolver) throws RepositoryException {
+    private String getType(Node node) throws RepositoryException {
         if (node.hasProperty(SLING_RESOURCE_TYPE_PROPERTY)) {
-            Resource component = resolver.getResource(node.getProperty(SLING_RESOURCE_TYPE_PROPERTY).getString());
-            if (Objects.nonNull(component)) {
-                String title = component.getValueMap().get(JcrConstants.JCR_TITLE).toString();
-                if (Objects.nonNull(title)) {
-                    return title.toLowerCase().replace(" ", "-");
-                }
-            }
+            String resourceType = node.getProperty(SLING_RESOURCE_TYPE_PROPERTY).getString();
+            return resourceType.substring(resourceType.lastIndexOf(PATH_SEPARATOR) + 1);
         }
         return null;
     }
@@ -135,9 +129,9 @@ public class ContentExporterServiceImpl implements ContentExporterService {
             Property property = properties.nextProperty();
             if (resourceValidatorService.isValid(property.getName(), resource)) {
                 setJsonProperty(mapper, jsonProperties, property);
-                String componentName = getName(node, resolver);
-                if (StringUtils.isNotEmpty(componentName))
-                    jsonProperties.put(COMPONENT_TYPE, componentName);
+                String componentType = getType(node);
+                if (StringUtils.isNotEmpty(componentType))
+                    jsonProperties.put(COMPONENT_TYPE, componentType);
             }
         }
         return jsonProperties;
